@@ -1,4 +1,4 @@
-import { Bot, GrammyError, HttpError } from "grammy";
+import { Bot, GrammyError, HttpError, InlineKeyboard } from "grammy";
 import http from "node:http";
 import { loadConfig } from "./config";
 import { sleep, withChatLock } from "./utils";
@@ -62,18 +62,29 @@ async function runPipeline(opts: {
     query: opts.queryText,
   });
 
+  return await runApifyForKeywords({
+    originalQuery: opts.originalQueryLabel ? `${opts.originalQueryLabel}\n${opts.queryText}` : opts.queryText,
+    keywords: keywordsRes.keywords,
+    keywordsLanguage: keywordsRes.language,
+  });
+}
+
+async function runApifyForKeywords(opts: {
+  originalQuery: string;
+  keywords: string[];
+  keywordsLanguage?: string;
+}): Promise<{ text: string; hadAnyResults: boolean }> {
   const perKeywordTop = 5;
   const totalLimit = 30;
 
   const blocks: KeywordBlock[] = [];
   let anyVideos = false;
 
-  for (const keyword of keywordsRes.keywords) {
+  for (const keyword of opts.keywords) {
     const items = await searchTikTokByKeywordViaApify({
       apiToken: config.apifyApiToken,
       actorId: config.apifyActorId,
       keyword,
-      region: config.apifyRegion,
       maxResults: config.apifyMaxResults,
     });
     console.log(
@@ -101,13 +112,47 @@ async function runPipeline(opts: {
   }
 
   const text = formatResultMessage({
-    originalQuery: opts.originalQueryLabel ? `${opts.originalQueryLabel}\n${opts.queryText}` : opts.queryText,
-    keywords: keywordsRes.keywords,
+    originalQuery: opts.originalQuery,
+    keywords: opts.keywords,
+    keywordsLanguage: opts.keywordsLanguage,
     blocks,
     totalLimit,
   });
 
   return { text, hadAnyResults: anyVideos };
+}
+
+type Pending = {
+  query: string;
+  answer: string;
+  keywords: string[];
+  language: string;
+  createdAt: number;
+};
+
+const pendingByChat = new Map<number, Pending>();
+const PENDING_TTL_MS = 30 * 60 * 1000;
+
+function setPending(chatId: number, p: Pending) {
+  pendingByChat.set(chatId, p);
+}
+
+function getPending(chatId: number): Pending | null {
+  const p = pendingByChat.get(chatId);
+  if (!p) return null;
+  if (Date.now() - p.createdAt > PENDING_TTL_MS) {
+    pendingByChat.delete(chatId);
+    return null;
+  }
+  return p;
+}
+
+function pendingKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🔎 Искать", "do_search")
+    .text("🔁 Перегенерить", "regen_keys")
+    .row()
+    .text("🧹 Сброс", "clear_pending");
 }
 
 bot.command("help", async (ctx) => {
@@ -131,10 +176,92 @@ bot.command("diag", async (ctx) => {
     `- stt.configured: <code>${config.sttApiKey ? "yes" : "no"}</code>`,
     `- openrouter.model: <code>${config.openRouterModel}</code>`,
     `- apify.actor: <code>${config.apifyActorId}</code>`,
-    `- apify.region: <code>${config.apifyRegion}</code>`,
     `- apify.maxResults: <code>${config.apifyMaxResults}</code>`,
   ];
   await ctx.reply(lines.join("\n"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+});
+
+bot.callbackQuery(["do_search", "regen_keys", "clear_pending"], async (ctx) => {
+  if (!isGroupChat((ctx.chat as any)?.type)) return;
+  await ctx.answerCallbackQuery();
+
+  const chatId = ctx.chat!.id;
+  const action = ctx.callbackQuery.data;
+
+  if (action === "clear_pending") {
+    pendingByChat.delete(chatId);
+    await ctx.reply("Ок, сбросил. Напиши новый запрос.", { link_preview_options: { is_disabled: true } });
+    return;
+  }
+
+  const pending = getPending(chatId);
+  if (!pending) {
+    await ctx.reply("Не вижу сохранённых ключей. Напиши запрос ещё раз.", { link_preview_options: { is_disabled: true } });
+    return;
+  }
+
+  if (action === "regen_keys") {
+    const status = await ctx.reply("🔁 Перегенерирую ключевые слова…", { link_preview_options: { is_disabled: true } });
+    try {
+      const llm = await generateKeywordsOpenRouter({
+        apiKey: config.openRouterApiKey,
+        model: config.openRouterModel,
+        query: pending.query,
+      });
+      const next: Pending = { ...pending, answer: llm.answer, keywords: llm.keywords, language: llm.language, createdAt: Date.now() };
+      setPending(chatId, next);
+
+      const msg = [
+        `<b>Запрос</b>\n${pending.query}`,
+        "",
+        `<b>${llm.answer.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</b>`,
+        "",
+        `<b>Ключевые слова (${(llm.language ?? "en").toUpperCase()})</b>`,
+        llm.keywords.map((k, i) => `${i + 1}) ${k}`).join("\n"),
+        "",
+        "Если ок — нажми <b>🔎 Искать</b> или напиши <code>ищи</code>.",
+      ].join("\n");
+
+      await ctx.api.editMessageText(chatId, status.message_id, msg, {
+        parse_mode: "HTML",
+        reply_markup: pendingKeyboard(),
+        link_preview_options: { is_disabled: true },
+      });
+    } catch (e) {
+      console.error("regen_keys error:", e);
+      await ctx.api.editMessageText(chatId, status.message_id, "Не смог перегенерировать ключи. Попробуй ещё раз.", {
+        link_preview_options: { is_disabled: true },
+      });
+    }
+    return;
+  }
+
+  // do_search
+  await withChatLock(chatId, async () => {
+    const status = await ctx.reply("⏳ Ищу TikTok креативы…", { link_preview_options: { is_disabled: true } });
+    try {
+      const { text, hadAnyResults } = await runApifyForKeywords({
+        originalQuery: pending.query,
+        keywords: pending.keywords,
+        keywordsLanguage: pending.language,
+      });
+      if (!hadAnyResults) {
+        await ctx.api.editMessageText(chatId, status.message_id, "Ничего не нашёл по этим ключам 😕", {
+          link_preview_options: { is_disabled: true },
+        });
+        return;
+      }
+      await ctx.api.editMessageText(chatId, status.message_id, text, {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+    } catch (e) {
+      console.error("do_search error:", e);
+      await ctx.api.editMessageText(chatId, status.message_id, userFacingErrorMessage(e), {
+        link_preview_options: { is_disabled: true },
+      });
+    }
+  });
 });
 
 bot.on("message:text", async (ctx) => {
@@ -148,28 +275,71 @@ bot.on("message:text", async (ctx) => {
   // Let explicit commands be handled by their command handlers.
   if (text.startsWith("/")) return;
 
-  await withChatLock(ctx.chat.id, async () => {
-    const replyTo = ctx.message?.message_id;
-    const status = await ctx.reply("⏳ Ищу TikTok креативы…", {
-      reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
-    });
-    try {
-      const { text: out, hadAnyResults } = await runPipeline({
-        chatId: ctx.chat.id,
-        replyToMessageId: replyTo,
-        queryText: text,
+  // Confirm search without hitting the scraper on every message.
+  if (/^(ищи|search|go)\b/i.test(text)) {
+    const pending = getPending(ctx.chat.id);
+    if (!pending) {
+      await ctx.reply("Не вижу сохранённых ключей. Напиши запрос, я предложу ключи, и потом скажи “ищи”.", {
+        link_preview_options: { is_disabled: true },
       });
-
-      if (!hadAnyResults) {
-        await ctx.api.editMessageText(ctx.chat.id, status.message_id, "Ничего не нашёл по этим ключам 😕", {
+      return;
+    }
+    await withChatLock(ctx.chat.id, async () => {
+      const status = await ctx.reply("⏳ Ищу TikTok креативы…", { link_preview_options: { is_disabled: true } });
+      try {
+        const { text: out, hadAnyResults } = await runApifyForKeywords({
+          originalQuery: pending.query,
+          keywords: pending.keywords,
+          keywordsLanguage: pending.language,
+        });
+        if (!hadAnyResults) {
+          await ctx.api.editMessageText(ctx.chat.id, status.message_id, "Ничего не нашёл по этим ключам 😕", {
+            link_preview_options: { is_disabled: true },
+          });
+          return;
+        }
+        await ctx.api.editMessageText(ctx.chat.id, status.message_id, out, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });
-        return;
+      } catch (e) {
+        console.error("search confirm error:", e);
+        await ctx.api.editMessageText(ctx.chat.id, status.message_id, userFacingErrorMessage(e), {
+          link_preview_options: { is_disabled: true },
+        });
       }
+    });
+    return;
+  }
 
-      await ctx.api.editMessageText(ctx.chat.id, status.message_id, out, {
+  await withChatLock(ctx.chat.id, async () => {
+    const replyTo = ctx.message?.message_id;
+    const status = await ctx.reply("🤖 Думаю…", {
+      reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
+    });
+    try {
+      const llm = await generateKeywordsOpenRouter({
+        apiKey: config.openRouterApiKey,
+        model: config.openRouterModel,
+        query: text,
+      });
+
+      setPending(ctx.chat.id, { query: text, answer: llm.answer, keywords: llm.keywords, language: llm.language, createdAt: Date.now() });
+
+      const msg = [
+        `<b>Запрос</b>\n${text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}`,
+        "",
+        `${llm.answer.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}`,
+        "",
+        `<b>Ключевые слова (${(llm.language ?? "en").toUpperCase()})</b>`,
+        llm.keywords.map((k, i) => `${i + 1}) ${k.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}`).join("\n"),
+        "",
+        "Если ок — нажми <b>🔎 Искать</b> или напиши <code>ищи</code>.",
+      ].join("\n");
+
+      await ctx.api.editMessageText(ctx.chat.id, status.message_id, msg, {
         parse_mode: "HTML",
+        reply_markup: pendingKeyboard(),
         link_preview_options: { is_disabled: true },
       });
     } catch (e: any) {
@@ -196,42 +366,8 @@ bot.command("find", async (ctx) => {
     return;
   }
 
-  await withChatLock(ctx.chat.id, async () => {
-    const replyTo = ctx.message?.message_id;
-    const status = await ctx.reply("⏳ Ищу TikTok креативы…", {
-      reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
-    });
-    try {
-      const { text, hadAnyResults } = await runPipeline({
-        chatId: ctx.chat.id,
-        replyToMessageId: replyTo,
-        queryText: query,
-      });
-
-      if (!hadAnyResults) {
-        await ctx.api.editMessageText(ctx.chat.id, status.message_id, "Ничего не нашёл по этим ключам 😕", {
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
-        });
-        return;
-      }
-
-      await ctx.api.editMessageText(ctx.chat.id, status.message_id, text, {
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-      });
-    } catch (e: any) {
-      console.error("Pipeline error (/find):", e);
-      const msg = userFacingErrorMessage(e);
-      try {
-        await ctx.api.editMessageText(ctx.chat.id, status.message_id, msg);
-      } catch {
-        await ctx.reply(msg, {
-          reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
-        });
-      }
-    }
-  });
+  // Same behavior as plain text: propose keywords first, then wait for confirmation.
+  await ctx.reply(query);
 });
 
 bot.on("message:voice", async (ctx) => {

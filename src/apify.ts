@@ -145,14 +145,11 @@ export async function searchTikTokByKeywordViaApify(opts: {
   apiToken: string;
   actorId: string;
   keyword: string;
-  region: string;
   maxResults: number;
 }): Promise<TikTokVideo[]> {
   const input = {
     query: opts.keyword,
-    date_posted: "this-month",
     sort_by: "views",
-    region: opts.region,
     max_results: opts.maxResults,
     trim: false
   };

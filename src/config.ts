@@ -11,7 +11,6 @@ export type Config = {
 
   apifyApiToken: string;
   apifyActorId: string;
-  apifyRegion: string;
   apifyMaxResults: number;
 
   sttApiKey: string | null;
@@ -41,7 +40,6 @@ export function loadConfig(): Config {
   const openRouterModel = env("OPENROUTER_MODEL") ?? "openai/gpt-4o-mini";
 
   const apifyActorId = env("APIFY_ACTOR_ID") ?? "sociavault/tiktok-keyword-search-scraper";
-  const apifyRegion = env("APIFY_REGION") ?? "US";
   const apifyMaxResults = clamp(Number(env("APIFY_MAX_RESULTS") ?? "50"), 1, 200);
 
   assert(telegramBotToken, "Missing TELEGRAM_BOT_TOKEN");
@@ -59,7 +57,6 @@ export function loadConfig(): Config {
     openRouterModel,
     apifyApiToken,
     apifyActorId,
-    apifyRegion,
     apifyMaxResults,
     sttApiKey,
     sttEndpoint,

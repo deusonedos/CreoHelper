@@ -21,7 +21,8 @@ export function formatHelp(botUsername?: string): string {
     "<b>TikTok Creative Finder (MVP)</b>",
     "",
     "<b>Как пользоваться</b>",
-    "- Текст: просто напиши запрос в чат (или используй <code>/find запрос</code>)",
+    "- Текст: просто напиши запрос в чат — бот предложит ключи",
+    "- Подтверждение: нажми <b>🔎 Искать</b> или напиши <code>ищи</code>",
     "- Голос: скоро (пока отключено)",
     "",
     "<b>Пример</b>",
@@ -35,6 +36,7 @@ export function formatHelp(botUsername?: string): string {
 export function formatResultMessage(opts: {
   originalQuery: string;
   keywords: string[];
+  keywordsLanguage?: string;
   blocks: KeywordBlock[];
   totalLimit: number;
 }): string {
@@ -44,7 +46,8 @@ export function formatResultMessage(opts: {
   lines.push(escapeHtml(opts.originalQuery));
   lines.push("");
 
-  lines.push("<b>Ключевые слова (EN)</b>");
+  const lang = (opts.keywordsLanguage ?? "").toUpperCase();
+  lines.push(`<b>Ключевые слова${lang ? ` (${escapeHtml(lang)})` : ""}</b>`);
   lines.push(opts.keywords.map((k, i) => `${i + 1}) ${escapeHtml(k)}`).join("\n"));
   lines.push("");
 

@@ -1,7 +1,9 @@
 import { uniqueStrings } from "./utils";
 
 export type KeywordResult = {
+  answer: string;
   keywords: string[];
+  language: string; // e.g. "en", "ar", "ru"
 };
 
 type OpenRouterChatResponse = {
@@ -23,18 +25,18 @@ export async function generateKeywordsOpenRouter(opts: {
   query: string;
 }): Promise<KeywordResult> {
   const system = [
-    "You generate TikTok search keywords for creative research.",
+    "You are an assistant helping a team find TikTok creatives.",
     "Return ONLY a valid JSON object, no markdown, no extra text.",
-    'Schema: {"keywords": ["...","...","...","...","..."]}',
-    "Keywords must be in English by default, 2-5 words each, highly searchable.",
+    'Schema: {"answer": "...", "language": "en|ru|ar|...", "keywords": ["...","...","...","...","..."]}',
+    "You must answer the user briefly and propose EXACTLY 5 TikTok search keywords.",
+    "Default keyword language is English.",
+    "If the user explicitly asks for a language (e.g. Arabic) or uses that script, generate keywords in that language and set language accordingly.",
+    "Do NOT translate keywords to English if the user asked for Arabic (or any other language).",
+    "Keep each keyword 1-5 words. Avoid quotes inside keywords. Avoid emojis inside keywords.",
   ].join("\n");
 
   const user = [
-    "Task:",
-    "Generate exactly 5 TikTok search keywords for the request below.",
-    "Avoid quotes inside keywords. Avoid emojis.",
-    "",
-    "Request:",
+    "User message:",
     opts.query,
   ].join("\n");
 
@@ -72,6 +74,8 @@ export async function generateKeywordsOpenRouter(opts: {
     parsed = JSON.parse(maybeJson);
   }
 
+  const answerRaw = (parsed as any)?.answer;
+  const languageRaw = (parsed as any)?.language;
   const keywordsRaw = (parsed as any)?.keywords;
   if (!Array.isArray(keywordsRaw)) throw new Error(`Invalid OpenRouter response shape: ${content.slice(0, 500)}`);
 
@@ -83,6 +87,10 @@ export async function generateKeywordsOpenRouter(opts: {
 
   if (keywords.length < 3) throw new Error(`Too few keywords generated: ${content.slice(0, 500)}`);
 
-  return { keywords };
+  const answer = typeof answerRaw === "string" && answerRaw.trim() ? answerRaw.trim() : "Ок, вот варианты ключей.";
+  const language =
+    typeof languageRaw === "string" && languageRaw.trim() ? languageRaw.trim().slice(0, 12) : "en";
+
+  return { answer, keywords, language };
 }
 
