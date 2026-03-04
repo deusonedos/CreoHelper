@@ -91,7 +91,9 @@ bot.command("find", async (ctx) => {
 
   await withChatLock(ctx.chat.id, async () => {
     const replyTo = ctx.message?.message_id;
-    const status = await ctx.reply("⏳ Ищу TikTok креативы…", { reply_to_message_id: replyTo });
+    const status = await ctx.reply("⏳ Ищу TikTok креативы…", {
+      reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
+    });
     try {
       const { text, hadAnyResults } = await runPipeline({
         chatId: ctx.chat.id,
@@ -117,7 +119,9 @@ bot.command("find", async (ctx) => {
       try {
         await ctx.api.editMessageText(ctx.chat.id, status.message_id, msg);
       } catch {
-        await ctx.reply(msg, { reply_to_message_id: replyTo });
+        await ctx.reply(msg, {
+          reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
+        });
       }
     }
   });
@@ -128,7 +132,9 @@ bot.on("message:voice", async (ctx) => {
 
   await withChatLock(ctx.chat.id, async () => {
     const replyTo = ctx.message?.message_id;
-    const status = await ctx.reply("🎙️ Распознаю голос…", { reply_to_message_id: replyTo });
+    const status = await ctx.reply("🎙️ Распознаю голос…", {
+      reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
+    });
 
     try {
       const fileId = ctx.message?.voice?.file_id;
@@ -190,7 +196,9 @@ bot.on("message:voice", async (ctx) => {
       try {
         await ctx.api.editMessageText(ctx.chat.id, status.message_id, out);
       } catch {
-        await ctx.reply(out, { reply_to_message_id: replyTo });
+        await ctx.reply(out, {
+          reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
+        });
       }
     }
   });
