@@ -79,6 +79,24 @@ bot.command("help", async (ctx) => {
   });
 });
 
+bot.command("diag", async (ctx) => {
+  if (!isAllowedUser(ctx.from?.id)) return;
+  const lines = [
+    "<b>Diag</b>",
+    `- from.id: <code>${ctx.from?.id ?? "?"}</code>`,
+    `- chat.id: <code>${ctx.chat?.id ?? "?"}</code>`,
+    `- chat.type: <code>${(ctx.chat as any)?.type ?? "?"}</code>`,
+    `- bot: <code>@${bot.botInfo?.username ?? "unknown"}</code>`,
+    `- stt.enabled: <code>${config.sttApiKey ? "yes" : "no"}</code>`,
+    `- openrouter.model: <code>${config.openRouterModel}</code>`,
+    `- apify.actor: <code>${config.apifyActorId}</code>`,
+    `- apify.region: <code>${config.apifyRegion}</code>`,
+    `- apify.maxResults: <code>${config.apifyMaxResults}</code>`,
+    `- allowedIds.count: <code>${config.allowedTelegramUserIds.size}</code>`,
+  ];
+  await ctx.reply(lines.join("\n"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+});
+
 bot.command("find", async (ctx) => {
   if (!isAllowedUser(ctx.from?.id)) return;
 
