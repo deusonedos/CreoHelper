@@ -1,6 +1,6 @@
 import { Bot, GrammyError, HttpError } from "grammy";
 import { loadConfig } from "./config";
-import { withChatLock } from "./utils";
+import { sleep, withChatLock } from "./utils";
 import { downloadTelegramFileToTemp, transcribeWithWhisper } from "./speech";
 import { generateKeywordsOpenRouter } from "./llm";
 import { searchTikTokByKeywordViaApify, splitAndSortByViews } from "./apify";
@@ -330,8 +330,34 @@ bot.catch((err) => {
   }
 });
 
-console.log("Bot starting…");
-bot.start({ drop_pending_updates: true });
+async function startLongPollingWithRetry() {
+  // Ensure webhook is disabled (we use long polling on Railway).
+  try {
+    await bot.api.deleteWebhook({ drop_pending_updates: true });
+  } catch (e) {
+    console.warn("deleteWebhook failed (ignored):", e);
+  }
+
+  console.log("Bot starting…");
+  // Railway deploys can briefly run two instances; handle 409 by retrying.
+  for (let attempt = 1; attempt <= 30; attempt++) {
+    try {
+      await bot.start({ drop_pending_updates: true });
+      return;
+    } catch (e: any) {
+      const code = e?.error_code ?? e?.payload?.error_code;
+      const msg = String(e?.message ?? e ?? "");
+      if (code === 409 || msg.includes("409") || msg.toLowerCase().includes("getupdates")) {
+        const waitMs = Math.min(30_000, 1000 * attempt);
+        console.warn(`Long polling conflict (409). Retrying in ${waitMs}ms…`);
+        await sleep(waitMs);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error("Failed to start bot after multiple retries (getUpdates conflict).");
+}
 
 async function shutdown(signal: string) {
   console.log(`Received ${signal}, stopping bot…`);
@@ -344,4 +370,9 @@ async function shutdown(signal: string) {
 
 process.once("SIGINT", () => void shutdown("SIGINT"));
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
+startLongPollingWithRetry().catch((e) => {
+  console.error("Fatal startup error:", e);
+  process.exit(1);
+});
 
