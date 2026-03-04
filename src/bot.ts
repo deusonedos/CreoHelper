@@ -137,6 +137,16 @@ bot.on("message:voice", async (ctx) => {
     });
 
     try {
+      if (!config.sttApiKey) {
+        await ctx.api.editMessageText(
+          ctx.chat.id,
+          status.message_id,
+          "Голосовые сейчас отключены: добавь STT_API_KEY (OpenAI-compatible) в Railway Variables.",
+          { link_preview_options: { is_disabled: true } }
+        );
+        return;
+      }
+
       const fileId = ctx.message?.voice?.file_id;
       if (!fileId) throw new Error("No voice file_id");
 
