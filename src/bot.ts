@@ -341,7 +341,25 @@ bot.catch((err) => {
 });
 
 async function startLongPollingWithRetry() {
-  // Ensure webhook is disabled (we use long polling on Railway).
+  // Log webhook state & ensure it is disabled (we use long polling on Railway).
+  try {
+    const info = await bot.api.getWebhookInfo();
+    console.log(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        stage: "webhook_info",
+        url: info.url,
+        has_custom_certificate: info.has_custom_certificate,
+        pending_update_count: info.pending_update_count,
+        last_error_date: info.last_error_date ?? null,
+        last_error_message: info.last_error_message ?? null,
+        max_connections: info.max_connections ?? null,
+      })
+    );
+  } catch (e) {
+    console.warn("getWebhookInfo failed (ignored):", e);
+  }
+
   try {
     await bot.api.deleteWebhook({ drop_pending_updates: true });
   } catch (e) {
@@ -349,16 +367,25 @@ async function startLongPollingWithRetry() {
   }
 
   console.log("Bot starting…");
-  // Railway deploys can briefly run two instances; handle 409 by retrying.
-  for (let attempt = 1; attempt <= 30; attempt++) {
+  // On Railway a brief overlap during deploys can happen. Also 409 may appear if webhook is set.
+  // Never crash the process on 409: keep retrying with backoff until it stabilizes.
+  for (let attempt = 1; ; attempt++) {
     try {
       await bot.start({ drop_pending_updates: true });
       return;
     } catch (e: any) {
       const code = e?.error_code ?? e?.payload?.error_code;
       const msg = String(e?.message ?? e ?? "");
-      if (code === 409 || msg.includes("409") || msg.toLowerCase().includes("getupdates")) {
-        const waitMs = Math.min(30_000, 1000 * attempt);
+      const is409 = code === 409 || msg.includes("409") || msg.toLowerCase().includes("getupdates");
+      if (is409) {
+        // Ensure any partial polling loop is stopped before retrying.
+        try {
+          await bot.stop();
+        } catch {
+          // ignore
+        }
+
+        const waitMs = Math.min(30_000, 1000 * Math.min(attempt, 10));
         console.warn(`Long polling conflict (409). Retrying in ${waitMs}ms…`);
         await sleep(waitMs);
         continue;
@@ -366,7 +393,6 @@ async function startLongPollingWithRetry() {
       throw e;
     }
   }
-  throw new Error("Failed to start bot after multiple retries (getUpdates conflict).");
 }
 
 async function shutdown(signal: string) {
