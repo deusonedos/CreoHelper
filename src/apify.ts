@@ -106,7 +106,13 @@ export function filterAndSortLast30Days(videos: TikTokVideo[]): {
       unknownDate.push(v);
       continue;
     }
-    if (v.createdAt.getTime() >= threshold) recent.push(v);
+    if (v.createdAt.getTime() >= threshold) {
+      recent.push(v);
+    } else {
+      // If the actor returns older items (or our date parsing differs),
+      // keep them so the bot still returns links.
+      unknownDate.push(v);
+    }
   }
 
   recent.sort((a, b) => (b.views ?? -1) - (a.views ?? -1));

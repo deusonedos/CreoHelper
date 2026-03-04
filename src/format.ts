@@ -71,7 +71,7 @@ export function formatResultMessage(opts: {
     }
 
     if (unknown.length && totalAdded < opts.totalLimit) {
-      lines.push("<i>Без даты (возможно старые):</i>");
+      lines.push("<i>Без даты / старше 30 дней:</i>");
       for (const v of unknown.slice(0, Math.max(0, opts.totalLimit - totalAdded))) {
         lines.push(formatVideoLine(v));
         totalAdded++;
