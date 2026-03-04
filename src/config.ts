@@ -30,7 +30,9 @@ export function loadConfig(): Config {
 
   const allowedTelegramUserIds = new Set(parseCsvNumberList(env("ALLOWED_TELEGRAM_USER_IDS")));
 
-  const sttApiKey = env("OPENAI_API_KEY") ?? "";
+  // Speech-to-text is OpenAI-compatible (Whisper).
+  // Prefer STT_API_KEY; keep OPENAI_API_KEY for backward compatibility.
+  const sttApiKey = env("STT_API_KEY") ?? env("OPENAI_API_KEY") ?? "";
   const sttEndpoint = env("STT_ENDPOINT") ?? "https://api.openai.com/v1/audio/transcriptions";
   const sttModel = env("STT_MODEL") ?? "whisper-1";
 
@@ -46,7 +48,7 @@ export function loadConfig(): Config {
   assert(allowedTelegramUserIds.size > 0, "Missing/empty ALLOWED_TELEGRAM_USER_IDS (e.g. 123,456)");
 
   // Whisper STT is required for voice notes (MVP requirement).
-  assert(sttApiKey, "Missing OPENAI_API_KEY (required for voice transcription)");
+  assert(sttApiKey, "Missing STT_API_KEY (or OPENAI_API_KEY) required for voice transcription");
 
   return {
     telegramBotToken,

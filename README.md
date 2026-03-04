@@ -8,7 +8,7 @@ MVP бота для **группового чата**: текст/голос →
 - Telegram bot token
 - OpenRouter API key
 - Apify API token
-- OpenAI API key (для Whisper STT)
+- Любой OpenAI-compatible STT key (Whisper), например OpenAI или Groq
 
 ## Установка и запуск локально
 
@@ -25,13 +25,21 @@ npm run dev
 
 - `TELEGRAM_BOT_TOKEN`
 - `ALLOWED_TELEGRAM_USER_IDS` (например `123,456`)
-- `OPENAI_API_KEY` (Whisper)
+- `STT_API_KEY` (Whisper, OpenAI-compatible; можно OpenAI или Groq)
 - `OPENROUTER_API_KEY`
 - `APIFY_API_TOKEN`
 
 Опционально:
 - `OPENROUTER_MODEL`
 - `APIFY_ACTOR_ID`, `APIFY_REGION`, `APIFY_MAX_RESULTS`
+
+### Дешёвый STT без OpenAI (пример Groq)
+
+Groq поддерживает OpenAI-compatible endpoint для транскрибации:
+
+- `STT_ENDPOINT=https://api.groq.com/openai/v1/audio/transcriptions`
+- `STT_API_KEY=<GROQ_API_KEY>`
+- `STT_MODEL=whisper-large-v3-turbo`
 
 ## Как протестировать в групповом чате
 
