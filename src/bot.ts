@@ -9,6 +9,33 @@ import { formatHelp, formatResultMessage, type KeywordBlock } from "./format";
 const config = loadConfig();
 const bot = new Bot(config.telegramBotToken);
 
+// Minimal debug logs (server-side only). Helps verify updates reach the bot and see from.id.
+bot.use(async (ctx, next) => {
+  try {
+    const text = (ctx.message as any)?.text;
+    const isCommand = typeof text === "string" && text.startsWith("/");
+    const isFind = typeof text === "string" && /^\/find(@\w+)?\b/i.test(text);
+    const voice = (ctx.message as any)?.voice;
+    const isVoice = !!voice;
+    if (isCommand || isFind || isVoice) {
+      console.log(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          fromId: ctx.from?.id ?? null,
+          chatId: ctx.chat?.id ?? null,
+          chatType: (ctx.chat as any)?.type ?? null,
+          kind: isVoice ? "voice" : "text",
+          text: typeof text === "string" ? text.slice(0, 200) : null,
+          voice: isVoice ? { duration: voice.duration, fileId: voice.file_id } : null,
+        })
+      );
+    }
+  } catch {
+    // ignore logging errors
+  }
+  await next();
+});
+
 function isAllowedUser(fromId: number | undefined): boolean {
   if (!fromId) return false;
   return config.allowedTelegramUserIds.has(fromId);
