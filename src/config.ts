@@ -5,6 +5,8 @@ export type Config = {
   telegramBotToken: string;
   allowedTelegramUserIds: Set<number>;
 
+  textTriggerMode: "find_only" | "all_text";
+
   openRouterApiKey: string;
   openRouterModel: string;
 
@@ -30,6 +32,8 @@ export function loadConfig(): Config {
 
   const allowedTelegramUserIds = new Set(parseCsvNumberList(env("ALLOWED_TELEGRAM_USER_IDS")));
 
+  const textTriggerMode = (env("TEXT_TRIGGER_MODE") ?? "find_only") as string;
+
   // Speech-to-text is OpenAI-compatible (Whisper).
   // Prefer STT_API_KEY; keep OPENAI_API_KEY for backward compatibility.
   const sttApiKey = env("STT_API_KEY") ?? env("OPENAI_API_KEY") ?? null;
@@ -47,9 +51,14 @@ export function loadConfig(): Config {
   assert(apifyApiToken, "Missing APIFY_API_TOKEN");
   assert(allowedTelegramUserIds.size > 0, "Missing/empty ALLOWED_TELEGRAM_USER_IDS (e.g. 123,456)");
 
+  if (textTriggerMode !== "find_only" && textTriggerMode !== "all_text") {
+    throw new Error('Invalid TEXT_TRIGGER_MODE. Use "find_only" or "all_text".');
+  }
+
   return {
     telegramBotToken,
     allowedTelegramUserIds,
+    textTriggerMode: textTriggerMode as Config["textTriggerMode"],
     openRouterApiKey,
     openRouterModel,
     apifyApiToken,

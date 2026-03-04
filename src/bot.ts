@@ -114,6 +114,7 @@ bot.command("diag", async (ctx) => {
     `- chat.id: <code>${ctx.chat?.id ?? "?"}</code>`,
     `- chat.type: <code>${(ctx.chat as any)?.type ?? "?"}</code>`,
     `- bot: <code>@${bot.botInfo?.username ?? "unknown"}</code>`,
+    `- text.trigger: <code>${config.textTriggerMode}</code>`,
     `- stt.enabled: <code>${config.sttApiKey ? "yes" : "no"}</code>`,
     `- openrouter.model: <code>${config.openRouterModel}</code>`,
     `- apify.actor: <code>${config.apifyActorId}</code>`,
@@ -122,6 +123,55 @@ bot.command("diag", async (ctx) => {
     `- allowedIds.count: <code>${config.allowedTelegramUserIds.size}</code>`,
   ];
   await ctx.reply(lines.join("\n"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+});
+
+bot.on("message:text", async (ctx) => {
+  // Optional mode: handle any text from allowed users.
+  if (config.textTriggerMode !== "all_text") return;
+  if (!isAllowedUser(ctx.from?.id)) return;
+  if (ctx.from?.is_bot) return;
+
+  const text = ctx.message?.text?.trim() ?? "";
+  if (!text) return;
+  // Let explicit commands be handled by their command handlers.
+  if (text.startsWith("/")) return;
+
+  await withChatLock(ctx.chat.id, async () => {
+    const replyTo = ctx.message?.message_id;
+    const status = await ctx.reply("⏳ Ищу TikTok креативы…", {
+      reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
+    });
+    try {
+      const { text: out, hadAnyResults } = await runPipeline({
+        chatId: ctx.chat.id,
+        replyToMessageId: replyTo,
+        queryText: text,
+      });
+
+      if (!hadAnyResults) {
+        await ctx.api.editMessageText(ctx.chat.id, status.message_id, "Ничего не нашёл по этим ключам 😕", {
+          parse_mode: "HTML",
+          link_preview_options: { is_disabled: true },
+        });
+        return;
+      }
+
+      await ctx.api.editMessageText(ctx.chat.id, status.message_id, out, {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+    } catch (e: any) {
+      console.error("Pipeline error (all_text):", e);
+      const msg = userFacingErrorMessage(e);
+      try {
+        await ctx.api.editMessageText(ctx.chat.id, status.message_id, msg);
+      } catch {
+        await ctx.reply(msg, {
+          reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
+        });
+      }
+    }
+  });
 });
 
 bot.command("find", async (ctx) => {
