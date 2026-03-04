@@ -63,17 +63,24 @@ function pickFirstNumber(obj: any, keys: string[]): number | null {
 
 function normalizeVideo(item: any): TikTokVideo | null {
   const url =
-    pickFirstString(item, ["url", "webVideoUrl", "videoUrl", "shareUrl"]) ??
-    (typeof item?.id === "string" ? `https://www.tiktok.com/@tiktok/video/${item.id}` : null);
+    pickFirstString(item, ["url", "share_url", "webVideoUrl", "videoUrl", "shareUrl", "shareURL"]) ??
+    pickFirstString(item?.share_info, ["share_url", "shareUrl"]) ??
+    (typeof item?.aweme_id === "string"
+      ? `https://www.tiktok.com/@tiktok/video/${item.aweme_id}`
+      : typeof item?.id === "string"
+        ? `https://www.tiktok.com/@tiktok/video/${item.id}`
+        : null);
   if (!url) return null;
 
   const views =
     pickFirstNumber(item, ["views", "viewCount", "playCount"]) ??
     pickFirstNumber(item?.stats, ["views", "viewCount", "playCount"]) ??
+    pickFirstNumber(item?.statistics, ["play_count", "view_count", "playCount", "viewCount"]) ??
     null;
   const likes =
     pickFirstNumber(item, ["likes", "likeCount", "diggCount"]) ??
     pickFirstNumber(item?.stats, ["likes", "likeCount", "diggCount"]) ??
+    pickFirstNumber(item?.statistics, ["digg_count", "like_count", "diggCount", "likeCount"]) ??
     null;
 
   const createdAt =
@@ -81,6 +88,8 @@ function normalizeVideo(item: any): TikTokVideo | null {
     parseMaybeDate(item?.publishedAt) ??
     parseMaybeDate(item?.createTimeISO) ??
     parseMaybeDate(item?.createTime) ??
+    parseMaybeDate(item?.create_time_utc) ??
+    parseMaybeDate(item?.create_time) ??
     null;
 
   const description = pickFirstString(item, ["description", "desc", "text"]) ?? null;
@@ -88,6 +97,7 @@ function normalizeVideo(item: any): TikTokVideo | null {
   const author =
     pickFirstString(item?.author, ["uniqueId", "nickname", "name"]) ??
     pickFirstString(item, ["author", "authorName", "authorUniqueId"]) ??
+    pickFirstString(item?.author, ["unique_id"]) ??
     null;
 
   return { url, views, likes, createdAt, description, author };

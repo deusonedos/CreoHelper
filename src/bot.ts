@@ -75,6 +75,16 @@ async function runPipeline(opts: {
       region: config.apifyRegion,
       maxResults: config.apifyMaxResults,
     });
+    console.log(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        stage: "apify_result",
+        keyword,
+        items: items.length,
+        sampleUrl: items[0]?.url ?? null,
+        sampleViews: items[0]?.views ?? null,
+      })
+    );
 
     const { withDate, withoutDate } = splitAndSortByViews(items);
     const top = withDate.slice(0, perKeywordTop);
