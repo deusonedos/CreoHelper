@@ -3,7 +3,7 @@ import { loadConfig } from "./config";
 import { withChatLock } from "./utils";
 import { downloadTelegramFileToTemp, transcribeWithWhisper } from "./speech";
 import { generateKeywordsOpenRouter } from "./llm";
-import { filterAndSortLast30Days, searchTikTokByKeywordViaApify } from "./apify";
+import { searchTikTokByKeywordViaApify, splitAndSortByViews } from "./apify";
 import { formatHelp, formatResultMessage, type KeywordBlock } from "./format";
 
 const config = loadConfig();
@@ -76,16 +76,16 @@ async function runPipeline(opts: {
       maxResults: config.apifyMaxResults,
     });
 
-    const { recent, unknownDate } = filterAndSortLast30Days(items);
-    const topRecent = recent.slice(0, perKeywordTop);
-    const topUnknown = unknownDate.slice(0, Math.max(0, perKeywordTop - topRecent.length));
+    const { withDate, withoutDate } = splitAndSortByViews(items);
+    const top = withDate.slice(0, perKeywordTop);
+    const topFallback = withoutDate.slice(0, Math.max(0, perKeywordTop - top.length));
 
-    if (topRecent.length || topUnknown.length) anyVideos = true;
+    if (top.length || topFallback.length) anyVideos = true;
 
     blocks.push({
       keyword,
-      videos: topRecent,
-      unknownDateVideos: topUnknown,
+      videos: top,
+      unknownDateVideos: topFallback,
     });
   }
 

@@ -93,32 +93,22 @@ function normalizeVideo(item: any): TikTokVideo | null {
   return { url, views, likes, createdAt, description, author };
 }
 
-export function filterAndSortLast30Days(videos: TikTokVideo[]): {
-  recent: TikTokVideo[];
-  unknownDate: TikTokVideo[];
+export function splitAndSortByViews(videos: TikTokVideo[]): {
+  withDate: TikTokVideo[];
+  withoutDate: TikTokVideo[];
 } {
-  const threshold = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const recent: TikTokVideo[] = [];
-  const unknownDate: TikTokVideo[] = [];
+  const withDate: TikTokVideo[] = [];
+  const withoutDate: TikTokVideo[] = [];
 
   for (const v of videos) {
-    if (!v.createdAt) {
-      unknownDate.push(v);
-      continue;
-    }
-    if (v.createdAt.getTime() >= threshold) {
-      recent.push(v);
-    } else {
-      // If the actor returns older items (or our date parsing differs),
-      // keep them so the bot still returns links.
-      unknownDate.push(v);
-    }
+    if (v.createdAt) withDate.push(v);
+    else withoutDate.push(v);
   }
 
-  recent.sort((a, b) => (b.views ?? -1) - (a.views ?? -1));
-  unknownDate.sort((a, b) => (b.views ?? -1) - (a.views ?? -1));
+  withDate.sort((a, b) => (b.views ?? -1) - (a.views ?? -1));
+  withoutDate.sort((a, b) => (b.views ?? -1) - (a.views ?? -1));
 
-  return { recent, unknownDate };
+  return { withDate, withoutDate };
 }
 
 export async function searchTikTokByKeywordViaApify(opts: {

@@ -48,7 +48,7 @@ export function formatResultMessage(opts: {
   lines.push(opts.keywords.map((k, i) => `${i + 1}) ${escapeHtml(k)}`).join("\n"));
   lines.push("");
 
-  lines.push("<b>Результаты (последние 30 дней, сортировка по просмотрам)</b>");
+  lines.push("<b>Результаты (сортировка по просмотрам)</b>");
 
   let totalAdded = 0;
   for (const block of opts.blocks) {
@@ -71,7 +71,7 @@ export function formatResultMessage(opts: {
     }
 
     if (unknown.length && totalAdded < opts.totalLimit) {
-      lines.push("<i>Без даты / старше 30 дней:</i>");
+      lines.push("<i>Без даты:</i>");
       for (const v of unknown.slice(0, Math.max(0, opts.totalLimit - totalAdded))) {
         lines.push(formatVideoLine(v));
         totalAdded++;
