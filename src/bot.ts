@@ -36,9 +36,8 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
-function isAllowedUser(fromId: number | undefined): boolean {
-  if (!fromId) return false;
-  return config.allowedTelegramUserIds.has(fromId);
+function isGroupChat(type: unknown): boolean {
+  return type === "group" || type === "supergroup";
 }
 
 function userFacingErrorMessage(e: unknown): string {
@@ -99,7 +98,7 @@ async function runPipeline(opts: {
 }
 
 bot.command("help", async (ctx) => {
-  if (!isAllowedUser(ctx.from?.id)) return;
+  if (!isGroupChat((ctx.chat as any)?.type)) return;
   await ctx.reply(formatHelp(bot.botInfo?.username), {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
@@ -107,7 +106,7 @@ bot.command("help", async (ctx) => {
 });
 
 bot.command("diag", async (ctx) => {
-  if (!isAllowedUser(ctx.from?.id)) return;
+  if (!isGroupChat((ctx.chat as any)?.type)) return;
   const lines = [
     "<b>Diag</b>",
     `- from.id: <code>${ctx.from?.id ?? "?"}</code>`,
@@ -115,12 +114,12 @@ bot.command("diag", async (ctx) => {
     `- chat.type: <code>${(ctx.chat as any)?.type ?? "?"}</code>`,
     `- bot: <code>@${bot.botInfo?.username ?? "unknown"}</code>`,
     `- text.trigger: <code>${config.textTriggerMode}</code>`,
-    `- stt.enabled: <code>${config.sttApiKey ? "yes" : "no"}</code>`,
+    `- voice.enabled: <code>no</code>`,
+    `- stt.configured: <code>${config.sttApiKey ? "yes" : "no"}</code>`,
     `- openrouter.model: <code>${config.openRouterModel}</code>`,
     `- apify.actor: <code>${config.apifyActorId}</code>`,
     `- apify.region: <code>${config.apifyRegion}</code>`,
     `- apify.maxResults: <code>${config.apifyMaxResults}</code>`,
-    `- allowedIds.count: <code>${config.allowedTelegramUserIds.size}</code>`,
   ];
   await ctx.reply(lines.join("\n"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
 });
@@ -128,8 +127,8 @@ bot.command("diag", async (ctx) => {
 bot.on("message:text", async (ctx) => {
   // Optional mode: handle any text from allowed users.
   if (config.textTriggerMode !== "all_text") return;
-  if (!isAllowedUser(ctx.from?.id)) return;
   if (ctx.from?.is_bot) return;
+  if (!isGroupChat((ctx.chat as any)?.type)) return;
 
   const text = ctx.message?.text?.trim() ?? "";
   if (!text) return;
@@ -175,7 +174,7 @@ bot.on("message:text", async (ctx) => {
 });
 
 bot.command("find", async (ctx) => {
-  if (!isAllowedUser(ctx.from?.id)) return;
+  if (!isGroupChat((ctx.chat as any)?.type)) return;
 
   const raw = ctx.message?.text ?? "";
   const query = raw.replace(/^\/find(@\w+)?\s*/i, "").trim();
@@ -223,7 +222,14 @@ bot.command("find", async (ctx) => {
 });
 
 bot.on("message:voice", async (ctx) => {
-  if (!isAllowedUser(ctx.from?.id)) return;
+  if (!isGroupChat((ctx.chat as any)?.type)) return;
+
+  // MVP for now: text only.
+  const replyTo = ctx.message?.message_id;
+  await ctx.reply("Пока работаю только с текстом. Напиши запрос сообщением.", {
+    reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
+  });
+  return;
 
   await withChatLock(ctx.chat.id, async () => {
     const replyTo = ctx.message?.message_id;

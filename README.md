@@ -8,7 +8,7 @@ MVP бота для **группового чата**: текст/голос →
 - Telegram bot token
 - OpenRouter API key
 - Apify API token
-- Любой OpenAI-compatible STT key (Whisper), например OpenAI или Groq
+- (опционально позже) Любой OpenAI-compatible STT key (Whisper), например Groq
 
 ## Установка и запуск локально
 
@@ -24,14 +24,13 @@ npm run dev
 Заполни `.env`:
 
 - `TELEGRAM_BOT_TOKEN`
-- `ALLOWED_TELEGRAM_USER_IDS` (например `123,456`)
-- `STT_API_KEY` (Whisper, OpenAI-compatible; можно OpenAI или Groq)
 - `OPENROUTER_API_KEY`
 - `APIFY_API_TOKEN`
 
 Опционально:
 - `OPENROUTER_MODEL`
 - `APIFY_ACTOR_ID`, `APIFY_REGION`, `APIFY_MAX_RESULTS`
+- `STT_API_KEY`, `STT_ENDPOINT`, `STT_MODEL` (для голосовых, позже)
 
 ### Дешёвый STT без OpenAI (пример Groq)
 
@@ -51,11 +50,11 @@ Groq поддерживает OpenAI-compatible endpoint для транскри
 3) Выдай боту минимальные права **читать сообщения** (обычно достаточно).
 
 4) В группе:
-- Текстом: `/find подбери ключи для фоторедактора и найди топ за месяц`
-- Голосом: просто отправь voice note (бот обработает всегда, но **только** от разрешённых пользователей).
+- Текстом: просто напиши запрос (или используй `/find ...`)
+- Голосом: позже (пока отключено)
 
 ## Команды
 
 - `/help` — инструкция
-- `/find <запрос>` — поиск по тексту
+- `/find <запрос>` — поиск по тексту (опционально, можно писать и без команды)
 

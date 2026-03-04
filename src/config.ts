@@ -1,9 +1,8 @@
 import "dotenv/config";
-import { assert, clamp, parseCsvNumberList } from "./utils";
+import { assert, clamp } from "./utils";
 
 export type Config = {
   telegramBotToken: string;
-  allowedTelegramUserIds: Set<number>;
 
   textTriggerMode: "find_only" | "all_text";
 
@@ -30,9 +29,8 @@ export function loadConfig(): Config {
   const openRouterApiKey = env("OPENROUTER_API_KEY");
   const apifyApiToken = env("APIFY_API_TOKEN");
 
-  const allowedTelegramUserIds = new Set(parseCsvNumberList(env("ALLOWED_TELEGRAM_USER_IDS")));
-
-  const textTriggerMode = (env("TEXT_TRIGGER_MODE") ?? "find_only") as string;
+  // For MVP we handle any text by default.
+  const textTriggerMode = (env("TEXT_TRIGGER_MODE") ?? "all_text") as string;
 
   // Speech-to-text is OpenAI-compatible (Whisper).
   // Prefer STT_API_KEY; keep OPENAI_API_KEY for backward compatibility.
@@ -49,7 +47,6 @@ export function loadConfig(): Config {
   assert(telegramBotToken, "Missing TELEGRAM_BOT_TOKEN");
   assert(openRouterApiKey, "Missing OPENROUTER_API_KEY");
   assert(apifyApiToken, "Missing APIFY_API_TOKEN");
-  assert(allowedTelegramUserIds.size > 0, "Missing/empty ALLOWED_TELEGRAM_USER_IDS (e.g. 123,456)");
 
   if (textTriggerMode !== "find_only" && textTriggerMode !== "all_text") {
     throw new Error('Invalid TEXT_TRIGGER_MODE. Use "find_only" or "all_text".');
@@ -57,7 +54,6 @@ export function loadConfig(): Config {
 
   return {
     telegramBotToken,
-    allowedTelegramUserIds,
     textTriggerMode: textTriggerMode as Config["textTriggerMode"],
     openRouterApiKey,
     openRouterModel,
