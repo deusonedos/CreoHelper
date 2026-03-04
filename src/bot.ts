@@ -1,4 +1,5 @@
 import { Bot, GrammyError, HttpError } from "grammy";
+import http from "node:http";
 import { loadConfig } from "./config";
 import { sleep, withChatLock } from "./utils";
 import { downloadTelegramFileToTemp, transcribeWithWhisper } from "./speech";
@@ -341,6 +342,27 @@ bot.catch((err) => {
 });
 
 async function startLongPollingWithRetry() {
+  // Railway "web" services expect an HTTP port to be open.
+  // Start a tiny health server if PORT is provided to avoid restarts/healthcheck failures.
+  const portRaw = process.env.PORT;
+  if (portRaw) {
+    const port = Number(portRaw);
+    if (Number.isFinite(port) && port > 0) {
+      const server = http.createServer((req, res) => {
+        if (req.url === "/health") {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("ok");
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("running");
+      });
+      server.listen(port, "0.0.0.0", () => {
+        console.log(`Health server listening on :${port}`);
+      });
+    }
+  }
+
   // Log webhook state & ensure it is disabled (we use long polling on Railway).
   try {
     const info = await bot.api.getWebhookInfo();
