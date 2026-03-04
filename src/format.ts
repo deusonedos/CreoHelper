@@ -57,19 +57,19 @@ export function formatResultMessage(opts: {
     lines.push("");
     lines.push(`<b>${escapeHtml(block.keyword)}</b>`);
 
-    const vids = block.videos;
-    if (!vids.length) {
+    const recent = block.videos ?? [];
+    const unknown = block.unknownDateVideos ?? [];
+    if (!recent.length && !unknown.length) {
       lines.push("- (ничего не нашёл)");
       continue;
     }
 
-    for (const v of vids) {
+    for (const v of recent) {
       if (totalAdded >= opts.totalLimit) break;
       lines.push(formatVideoLine(v));
       totalAdded++;
     }
 
-    const unknown = block.unknownDateVideos ?? [];
     if (unknown.length && totalAdded < opts.totalLimit) {
       lines.push("<i>Без даты (возможно старые):</i>");
       for (const v of unknown.slice(0, Math.max(0, opts.totalLimit - totalAdded))) {
