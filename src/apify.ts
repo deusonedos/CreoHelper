@@ -61,7 +61,27 @@ function pickFirstNumber(obj: any, keys: string[]): number | null {
   return null;
 }
 
+function unwrapActorItem(item: any): any {
+  if (!item) return item;
+  // Actor UI often shows `Aweme_info` / `aweme_info` wrapper. Unwrap it.
+  if (item.aweme_info && typeof item.aweme_info === "object") return item.aweme_info;
+  if (item.Aweme_info && typeof item.Aweme_info === "object") return item.Aweme_info;
+  if (item.awemeInfo && typeof item.awemeInfo === "object") return item.awemeInfo;
+  if (item.item && typeof item.item === "object") return item.item;
+  // Sometimes actors return JSON string fields.
+  if (typeof item === "string" && item.trim().startsWith("{")) {
+    try {
+      return JSON.parse(item);
+    } catch {
+      return item;
+    }
+  }
+  return item;
+}
+
 function normalizeVideo(item: any): TikTokVideo | null {
+  item = unwrapActorItem(item);
+
   const url =
     pickFirstString(item, ["url", "share_url", "webVideoUrl", "videoUrl", "shareUrl", "shareURL"]) ??
     pickFirstString(item?.share_info, ["share_url", "shareUrl"]) ??
@@ -169,6 +189,23 @@ export async function searchTikTokByKeywordViaApify(opts: {
   }
 
   const items = (await itemsRes.json()) as any[];
+  if (Array.isArray(items) && items.length > 0) {
+    const first = unwrapActorItem(items[0]);
+    console.log(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        stage: "apify_dataset_sample",
+        keyword: opts.keyword,
+        rawCount: items.length,
+        firstKeys: first && typeof first === "object" ? Object.keys(first).slice(0, 25) : typeof first,
+        firstUrl: pickFirstString(first, ["url", "share_url"]) ?? pickFirstString(first?.share_info, ["share_url"]) ?? null,
+        firstViews:
+          pickFirstNumber(first?.statistics, ["play_count", "view_count"]) ??
+          pickFirstNumber(first, ["views", "viewCount", "playCount"]) ??
+          null,
+      })
+    );
+  }
   const videos: TikTokVideo[] = [];
   for (const item of items) {
     const v = normalizeVideo(item);
