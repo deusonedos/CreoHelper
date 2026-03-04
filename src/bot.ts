@@ -75,7 +75,7 @@ bot.command("help", async (ctx) => {
   if (!isAllowedUser(ctx.from?.id)) return;
   await ctx.reply(formatHelp(bot.botInfo?.username), {
     parse_mode: "HTML",
-    disable_web_page_preview: true,
+    link_preview_options: { is_disabled: true },
   });
 });
 
@@ -104,14 +104,14 @@ bot.command("find", async (ctx) => {
       if (!hadAnyResults) {
         await ctx.api.editMessageText(ctx.chat.id, status.message_id, "Ничего не нашёл по этим ключам 😕", {
           parse_mode: "HTML",
-          disable_web_page_preview: true,
+          link_preview_options: { is_disabled: true },
         });
         return;
       }
 
       await ctx.api.editMessageText(ctx.chat.id, status.message_id, text, {
         parse_mode: "HTML",
-        disable_web_page_preview: true,
+        link_preview_options: { is_disabled: true },
       });
     } catch (e: any) {
       console.error("Pipeline error (/find):", e);
@@ -164,7 +164,7 @@ bot.on("message:voice", async (ctx) => {
       }
 
       await ctx.api.editMessageText(ctx.chat.id, status.message_id, "⏳ Ищу TikTok креативы…", {
-        disable_web_page_preview: true,
+        link_preview_options: { is_disabled: true },
       });
 
       const { text, hadAnyResults } = await runPipeline({
@@ -176,14 +176,14 @@ bot.on("message:voice", async (ctx) => {
 
       if (!hadAnyResults) {
         await ctx.api.editMessageText(ctx.chat.id, status.message_id, "Ничего не нашёл по этим ключам 😕", {
-          disable_web_page_preview: true,
+          link_preview_options: { is_disabled: true },
         });
         return;
       }
 
       await ctx.api.editMessageText(ctx.chat.id, status.message_id, text, {
         parse_mode: "HTML",
-        disable_web_page_preview: true,
+        link_preview_options: { is_disabled: true },
       });
     } catch (e: any) {
       console.error("Voice handler error:", e);
