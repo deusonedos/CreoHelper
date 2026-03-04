@@ -28,7 +28,7 @@ export function formatHelp(botUsername?: string): string {
     "<code>Подбери 5 ключевых слов для приложения фоторедактора и найди TikTok видео за последний месяц с самым большим количеством просмотров</code>",
     "",
     "<b>Подсказка</b>",
-    `- Если позже включим голосовые и бот не будет их видеть — отключи privacy mode у ${mention} в BotFather.`,
+    `- Чтобы бот видел обычный текст в группе — отключи privacy mode у ${mention} в BotFather.`,
   ].join("\n");
 }
 

@@ -17,7 +17,9 @@ bot.use(async (ctx, next) => {
     const isFind = typeof text === "string" && /^\/find(@\w+)?\b/i.test(text);
     const voice = (ctx.message as any)?.voice;
     const isVoice = !!voice;
-    if (isCommand || isFind || isVoice) {
+    const isPlainText =
+      config.textTriggerMode === "all_text" && typeof text === "string" && text.trim() && !text.startsWith("/");
+    if (isCommand || isFind || isVoice || isPlainText) {
       console.log(
         JSON.stringify({
           ts: new Date().toISOString(),
