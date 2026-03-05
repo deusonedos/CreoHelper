@@ -1,9 +1,10 @@
 import { uniqueStrings } from "./utils";
 
-export type KeywordResult = {
+export type AssistantResult = {
   answer: string;
-  keywords: string[];
   language: string; // e.g. "en", "ar", "ru"
+  propose_keywords: boolean;
+  keywords: string[]; // empty if no proposal
 };
 
 type OpenRouterChatResponse = {
@@ -19,26 +20,46 @@ function extractJsonObject(text: string): string | null {
   return text.slice(first, last + 1);
 }
 
-export async function generateKeywordsOpenRouter(opts: {
+export async function generateAssistantOpenRouter(opts: {
   apiKey: string;
   model: string;
-  query: string;
-}): Promise<KeywordResult> {
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  forceKeywords?: boolean;
+}): Promise<AssistantResult> {
   const system = [
-    "You are an assistant helping a team find TikTok creatives.",
-    "Return ONLY a valid JSON object, no markdown, no extra text.",
-    'Schema: {"answer": "...", "language": "en|ru|ar|...", "keywords": ["...","...","...","...","..."]}',
-    "You must answer the user briefly and propose EXACTLY 5 TikTok search keywords.",
-    "Default keyword language is English.",
-    "If the user explicitly asks for a language (e.g. Arabic) or uses that script, generate keywords in that language and set language accordingly.",
-    "Do NOT translate keywords to English if the user asked for Arabic (or any other language).",
-    "Keep each keyword 1-5 words. Avoid quotes inside keywords. Avoid emojis inside keywords.",
+    "You are a helpful assistant helping a team find TikTok creatives.",
+    "You are chatting in a Telegram group; be concise and practical.",
+    "Maintain conversation context: if the user says 'go deeper' or 'refine', refine based on earlier topic.",
+    "",
+    "Output must be ONLY valid JSON (no markdown).",
+    'Schema: {"answer":"...","language":"en|ru|ar|...","propose_keywords":true|false,"keywords":[...]}',
+    "",
+    "When to propose keywords:",
+    "- If the user asks for keywords, search terms, key phrases, or to refine keywords: propose_keywords=true and output EXACTLY 5 keywords.",
+    "- If the user asks to search TikTok or says 'use these keywords': propose_keywords=true and output EXACTLY 5 keywords.",
+    "- Otherwise: propose_keywords=false and keywords must be an empty array [].",
+    "",
+    "Keyword language rules:",
+    "- Default keyword language is English.",
+    "- If the user explicitly asks for a specific language (e.g. Arabic) OR uses that script, generate keywords in that language.",
+    "- Do NOT translate keywords to English if the user asked for Arabic (or any other language).",
+    "",
+    "Keyword formatting:",
+    "- Each keyword: 1-5 words.",
+    "- Avoid quotes inside keywords. Avoid emojis inside keywords.",
   ].join("\n");
 
-  const user = [
-    "User message:",
-    opts.query,
-  ].join("\n");
+  const chatMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    { role: "system", content: system },
+    ...(opts.messages ?? []).map((m) => ({ role: m.role, content: m.content })),
+  ];
+
+  if (opts.forceKeywords) {
+    chatMessages.push({
+      role: "system",
+      content: "Force keywords proposal now: propose_keywords=true and output EXACTLY 5 keywords.",
+    });
+  }
 
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -49,10 +70,7 @@ export async function generateKeywordsOpenRouter(opts: {
     body: JSON.stringify({
       model: opts.model,
       temperature: 0.2,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
+      messages: chatMessages,
     }),
   });
 
@@ -76,21 +94,37 @@ export async function generateKeywordsOpenRouter(opts: {
 
   const answerRaw = (parsed as any)?.answer;
   const languageRaw = (parsed as any)?.language;
+  const proposeRaw = (parsed as any)?.propose_keywords;
   const keywordsRaw = (parsed as any)?.keywords;
-  if (!Array.isArray(keywordsRaw)) throw new Error(`Invalid OpenRouter response shape: ${content.slice(0, 500)}`);
 
+  const keywordsArr = Array.isArray(keywordsRaw) ? keywordsRaw : [];
   const keywords = uniqueStrings(
-    keywordsRaw
-      .map((k: unknown) => (typeof k === "string" ? k : ""))
-      .map((k) => k.replaceAll(/\s+/g, " ").trim())
+    keywordsArr.map((k: unknown) => (typeof k === "string" ? k : "")).map((k) => k.replaceAll(/\s+/g, " ").trim())
   ).slice(0, 5);
 
-  if (keywords.length < 3) throw new Error(`Too few keywords generated: ${content.slice(0, 500)}`);
+  const propose_keywords = typeof proposeRaw === "boolean" ? proposeRaw : keywords.length > 0;
+  if (propose_keywords && keywords.length !== 5) {
+    throw new Error(`Expected exactly 5 keywords when propose_keywords=true: ${content.slice(0, 500)}`);
+  }
 
-  const answer = typeof answerRaw === "string" && answerRaw.trim() ? answerRaw.trim() : "Ок, вот варианты ключей.";
+  const answer = typeof answerRaw === "string" && answerRaw.trim() ? answerRaw.trim() : "Ок.";
   const language =
     typeof languageRaw === "string" && languageRaw.trim() ? languageRaw.trim().slice(0, 12) : "en";
 
-  return { answer, keywords, language };
+  return { answer, keywords, language, propose_keywords };
+}
+
+// Backward-compatible helper for code paths that just need keywords right now.
+export async function generateKeywordsOpenRouter(opts: {
+  apiKey: string;
+  model: string;
+  query: string;
+}): Promise<AssistantResult> {
+  return await generateAssistantOpenRouter({
+    apiKey: opts.apiKey,
+    model: opts.model,
+    messages: [{ role: "user", content: opts.query }],
+    forceKeywords: true,
+  });
 }
 

@@ -1,9 +1,9 @@
 import { Bot, GrammyError, HttpError, InlineKeyboard } from "grammy";
 import http from "node:http";
 import { loadConfig } from "./config";
-import { sleep, withChatLock } from "./utils";
+import { escapeHtml, sleep, withChatLock } from "./utils";
 import { downloadTelegramFileToTemp, transcribeWithWhisper } from "./speech";
-import { generateKeywordsOpenRouter } from "./llm";
+import { generateAssistantOpenRouter, generateKeywordsOpenRouter } from "./llm";
 import { searchTikTokByKeywordViaApify, splitAndSortByViews } from "./apify";
 import { formatHelp, formatResultMessage, type KeywordBlock } from "./format";
 
@@ -133,6 +133,29 @@ type Pending = {
 const pendingByChat = new Map<number, Pending>();
 const PENDING_TTL_MS = 30 * 60 * 1000;
 
+type ChatMsg = { role: "user" | "assistant"; content: string };
+type ChatState = { messages: ChatMsg[]; updatedAt: number };
+const historyByChat = new Map<number, ChatState>();
+const HISTORY_TTL_MS = 6 * 60 * 60 * 1000;
+const MAX_HISTORY_MESSAGES = 16;
+
+function getHistory(chatId: number): ChatMsg[] {
+  const s = historyByChat.get(chatId);
+  if (!s) return [];
+  if (Date.now() - s.updatedAt > HISTORY_TTL_MS) {
+    historyByChat.delete(chatId);
+    return [];
+  }
+  return s.messages;
+}
+
+function pushHistory(chatId: number, msg: ChatMsg) {
+  const now = Date.now();
+  const current = getHistory(chatId);
+  const next = [...current, msg].slice(-MAX_HISTORY_MESSAGES);
+  historyByChat.set(chatId, { messages: next, updatedAt: now });
+}
+
 function setPending(chatId: number, p: Pending) {
   pendingByChat.set(chatId, p);
 }
@@ -153,6 +176,20 @@ function pendingKeyboard(): InlineKeyboard {
     .text("🔁 Перегенерить", "regen_keys")
     .row()
     .text("🧹 Сброс", "clear_pending");
+}
+
+function formatProposalMessage(opts: { query: string; answer: string; language: string; keywords: string[] }): string {
+  const lang = (opts.language || "en").toUpperCase();
+  return [
+    `<b>Запрос</b>\n${escapeHtml(opts.query)}`,
+    "",
+    escapeHtml(opts.answer),
+    "",
+    `<b>Ключевые слова (${escapeHtml(lang)})</b>`,
+    opts.keywords.map((k, i) => `${i + 1}) ${escapeHtml(k)}`).join("\n"),
+    "",
+    "Если ок — нажми <b>🔎 Искать</b> или напиши <code>ищи</code>.",
+  ].join("\n");
 }
 
 bot.command("help", async (ctx) => {
@@ -211,16 +248,7 @@ bot.callbackQuery(["do_search", "regen_keys", "clear_pending"], async (ctx) => {
       const next: Pending = { ...pending, answer: llm.answer, keywords: llm.keywords, language: llm.language, createdAt: Date.now() };
       setPending(chatId, next);
 
-      const msg = [
-        `<b>Запрос</b>\n${pending.query}`,
-        "",
-        `<b>${llm.answer.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</b>`,
-        "",
-        `<b>Ключевые слова (${(llm.language ?? "en").toUpperCase()})</b>`,
-        llm.keywords.map((k, i) => `${i + 1}) ${k}`).join("\n"),
-        "",
-        "Если ок — нажми <b>🔎 Искать</b> или напиши <code>ищи</code>.",
-      ].join("\n");
+      const msg = formatProposalMessage({ query: pending.query, answer: llm.answer, language: llm.language, keywords: llm.keywords });
 
       await ctx.api.editMessageText(chatId, status.message_id, msg, {
         parse_mode: "HTML",
@@ -318,30 +346,29 @@ bot.on("message:text", async (ctx) => {
       reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
     });
     try {
-      const llm = await generateKeywordsOpenRouter({
+      pushHistory(ctx.chat.id, { role: "user", content: text });
+      const llm = await generateAssistantOpenRouter({
         apiKey: config.openRouterApiKey,
         model: config.openRouterModel,
-        query: text,
+        messages: getHistory(ctx.chat.id),
       });
 
-      setPending(ctx.chat.id, { query: text, answer: llm.answer, keywords: llm.keywords, language: llm.language, createdAt: Date.now() });
+      pushHistory(ctx.chat.id, { role: "assistant", content: llm.answer });
 
-      const msg = [
-        `<b>Запрос</b>\n${text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}`,
-        "",
-        `${llm.answer.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}`,
-        "",
-        `<b>Ключевые слова (${(llm.language ?? "en").toUpperCase()})</b>`,
-        llm.keywords.map((k, i) => `${i + 1}) ${k.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}`).join("\n"),
-        "",
-        "Если ок — нажми <b>🔎 Искать</b> или напиши <code>ищи</code>.",
-      ].join("\n");
-
-      await ctx.api.editMessageText(ctx.chat.id, status.message_id, msg, {
-        parse_mode: "HTML",
-        reply_markup: pendingKeyboard(),
-        link_preview_options: { is_disabled: true },
-      });
+      if (llm.propose_keywords && llm.keywords.length === 5) {
+        setPending(ctx.chat.id, { query: text, answer: llm.answer, keywords: llm.keywords, language: llm.language, createdAt: Date.now() });
+        const msg = formatProposalMessage({ query: text, answer: llm.answer, language: llm.language, keywords: llm.keywords });
+        await ctx.api.editMessageText(ctx.chat.id, status.message_id, msg, {
+          parse_mode: "HTML",
+          reply_markup: pendingKeyboard(),
+          link_preview_options: { is_disabled: true },
+        });
+      } else {
+        await ctx.api.editMessageText(ctx.chat.id, status.message_id, escapeHtml(llm.answer), {
+          parse_mode: "HTML",
+          link_preview_options: { is_disabled: true },
+        });
+      }
     } catch (e: any) {
       console.error("Pipeline error (all_text):", e);
       const msg = userFacingErrorMessage(e);
@@ -366,8 +393,40 @@ bot.command("find", async (ctx) => {
     return;
   }
 
-  // Same behavior as plain text: propose keywords first, then wait for confirmation.
-  await ctx.reply(query);
+  // Same behavior as plain text, but force keyword proposal.
+  const replyTo = ctx.message?.message_id;
+  const status = await ctx.reply("🤖 Думаю…", {
+    reply_parameters: replyTo ? { message_id: replyTo, allow_sending_without_reply: true } : undefined,
+  });
+  try {
+    pushHistory(ctx.chat.id, { role: "user", content: query });
+    const llm = await generateAssistantOpenRouter({
+      apiKey: config.openRouterApiKey,
+      model: config.openRouterModel,
+      messages: getHistory(ctx.chat.id),
+      forceKeywords: true,
+    });
+    pushHistory(ctx.chat.id, { role: "assistant", content: llm.answer });
+    if (llm.keywords.length === 5) {
+      setPending(ctx.chat.id, { query, answer: llm.answer, keywords: llm.keywords, language: llm.language, createdAt: Date.now() });
+      const msg = formatProposalMessage({ query, answer: llm.answer, language: llm.language, keywords: llm.keywords });
+      await ctx.api.editMessageText(ctx.chat.id, status.message_id, msg, {
+        parse_mode: "HTML",
+        reply_markup: pendingKeyboard(),
+        link_preview_options: { is_disabled: true },
+      });
+    } else {
+      await ctx.api.editMessageText(ctx.chat.id, status.message_id, escapeHtml(llm.answer), {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+    }
+  } catch (e) {
+    console.error("find handler error:", e);
+    await ctx.api.editMessageText(ctx.chat.id, status.message_id, userFacingErrorMessage(e), {
+      link_preview_options: { is_disabled: true },
+    });
+  }
 });
 
 bot.on("message:voice", async (ctx) => {
